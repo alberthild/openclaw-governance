@@ -9,6 +9,8 @@ import type {
   GovernanceStatus,
   PluginLogger,
   PolicyIndex,
+  RiskAssessment,
+  RiskLevel,
   TrustStore,
   Verdict,
 } from "./types.js";
@@ -96,122 +98,108 @@ export class GovernanceEngine {
 
   async evaluate(ctx: EvaluationContext): Promise<Verdict> {
     const startUs = nowUs();
-
     try {
-      // 1. Cross-agent context enrichment (USP3)
-      const enrichedCtx = this.crossAgentManager.enrichContext(ctx);
-
-      // 2. Record frequency
-      this.frequencyTracker.record({
-        timestamp: Date.now(),
-        agentId: enrichedCtx.agentId,
-        sessionKey: enrichedCtx.sessionKey,
-        toolName: enrichedCtx.toolName,
-      });
-
-      // 3. Risk assessment (USP1)
-      const risk = this.riskAssessor.assess(
-        enrichedCtx,
-        this.frequencyTracker,
-      );
-
-      // 4. Resolve effective policies (USP3)
-      const effectivePolicies =
-        this.crossAgentManager.resolveEffectivePolicies(
-          enrichedCtx,
-          this.policyIndex,
-        );
-
-      // 5. Policy evaluation (USP1)
-      const deps: ConditionDeps = {
-        regexCache: this.policyIndex.regexCache,
-        timeWindows: this.config.timeWindows,
-        risk,
-        frequencyTracker: this.frequencyTracker,
-      };
-
-      const evalResult = this.evaluator.evaluateWithDeps(
-        enrichedCtx,
-        effectivePolicies,
-        risk,
-        deps,
-      );
-
-      const elapsedUs = nowUs() - startUs;
-
-      const verdict: Verdict = {
-        action: evalResult.action,
-        reason: evalResult.reason,
-        risk,
-        matchedPolicies: evalResult.matches,
-        trust: enrichedCtx.trust,
-        evaluationUs: elapsedUs,
-      };
-
-      // 6. Audit trail (USP4)
-      if (this.config.audit.enabled) {
-        const auditCtx: AuditContext = {
-          hook: enrichedCtx.hook,
-          agentId: enrichedCtx.agentId,
-          sessionKey: enrichedCtx.sessionKey,
-          channel: enrichedCtx.channel,
-          toolName: enrichedCtx.toolName,
-          toolParams: enrichedCtx.toolParams,
-          messageContent: enrichedCtx.messageContent,
-          messageTo: enrichedCtx.messageTo,
-          crossAgent: enrichedCtx.crossAgent,
-        };
-
-        this.auditTrail.record(
-          verdict.action as AuditVerdict,
-          auditCtx,
-          verdict.trust,
-          { level: risk.level, score: risk.score },
-          verdict.matchedPolicies,
-          elapsedUs,
-        );
-      }
-
-      this.updateStats(verdict.action, elapsedUs);
+      const verdict = this.runPipeline(ctx, startUs);
+      this.updateStats(verdict.action, verdict.evaluationUs);
       return verdict;
     } catch (e) {
-      const elapsedUs = nowUs() - startUs;
-      this.stats.errorCount++;
-      this.logger.error(
-        `[governance] Evaluation error: ${e instanceof Error ? e.message : String(e)}`,
-      );
-
-      const fallback =
-        this.config.failMode === "closed" ? "deny" : "allow";
-
-      if (this.config.audit.enabled) {
-        this.auditTrail.record(
-          "error_fallback",
-          {
-            hook: ctx.hook,
-            agentId: ctx.agentId,
-            sessionKey: ctx.sessionKey,
-            toolName: ctx.toolName,
-          },
-          ctx.trust,
-          { level: "critical", score: 100 },
-          [],
-          elapsedUs,
-        );
-      }
-
-      return {
-        action: fallback,
-        reason:
-          fallback === "deny"
-            ? "Governance engine error (fail-closed)"
-            : "Governance engine error (fail-open)",
-        risk: { level: "critical", score: 100, factors: [] },
-        matchedPolicies: [],
-        trust: ctx.trust,
-        evaluationUs: elapsedUs,
-      };
+      return this.handleEvalError(e, ctx, startUs);
     }
+  }
+
+  private buildDeps(risk: RiskAssessment): ConditionDeps {
+    return {
+      regexCache: this.policyIndex.regexCache,
+      timeWindows: this.config.timeWindows,
+      risk,
+      frequencyTracker: this.frequencyTracker,
+    };
+  }
+
+  private runPipeline(ctx: EvaluationContext, startUs: number): Verdict {
+    const enrichedCtx = this.crossAgentManager.enrichContext(ctx);
+    this.frequencyTracker.record({
+      timestamp: Date.now(),
+      agentId: enrichedCtx.agentId,
+      sessionKey: enrichedCtx.sessionKey,
+      toolName: enrichedCtx.toolName,
+    });
+
+    const risk = this.riskAssessor.assess(enrichedCtx, this.frequencyTracker);
+    const policies = this.crossAgentManager.resolveEffectivePolicies(
+      enrichedCtx, this.policyIndex,
+    );
+    const evalResult = this.evaluator.evaluateWithDeps(
+      enrichedCtx, policies, risk, this.buildDeps(risk),
+    );
+
+    const elapsedUs = nowUs() - startUs;
+    const verdict: Verdict = {
+      action: evalResult.action, reason: evalResult.reason, risk,
+      matchedPolicies: evalResult.matches,
+      trust: enrichedCtx.trust, evaluationUs: elapsedUs,
+    };
+
+    this.recordAudit(enrichedCtx, verdict, risk, elapsedUs);
+    return verdict;
+  }
+
+  private recordAudit(
+    ctx: EvaluationContext,
+    verdict: Verdict,
+    risk: { level: RiskLevel; score: number },
+    elapsedUs: number,
+  ): void {
+    if (!this.config.audit.enabled) return;
+    const auditCtx: AuditContext = {
+      hook: ctx.hook,
+      agentId: ctx.agentId,
+      sessionKey: ctx.sessionKey,
+      channel: ctx.channel,
+      toolName: ctx.toolName,
+      toolParams: ctx.toolParams,
+      messageContent: ctx.messageContent,
+      messageTo: ctx.messageTo,
+      crossAgent: ctx.crossAgent,
+    };
+    this.auditTrail.record(
+      verdict.action as AuditVerdict,
+      auditCtx, verdict.trust,
+      { level: risk.level, score: risk.score },
+      verdict.matchedPolicies, elapsedUs,
+    );
+  }
+
+  private handleEvalError(
+    e: unknown,
+    ctx: EvaluationContext,
+    startUs: number,
+  ): Verdict {
+    const elapsedUs = nowUs() - startUs;
+    this.stats.errorCount++;
+    this.logger.error(
+      `[governance] Evaluation error: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    const fallback = this.config.failMode === "closed" ? "deny" : "allow";
+
+    if (this.config.audit.enabled) {
+      this.auditTrail.record(
+        "error_fallback",
+        { hook: ctx.hook, agentId: ctx.agentId, sessionKey: ctx.sessionKey, toolName: ctx.toolName },
+        ctx.trust, { level: "critical", score: 100 }, [], elapsedUs,
+      );
+    }
+
+    return {
+      action: fallback,
+      reason: fallback === "deny"
+        ? "Governance engine error (fail-closed)"
+        : "Governance engine error (fail-open)",
+      risk: { level: "critical", score: 100, factors: [] },
+      matchedPolicies: [],
+      trust: ctx.trust,
+      evaluationUs: elapsedUs,
+    };
   }
 
   recordOutcome(

@@ -23,24 +23,22 @@ function lookupToolRisk(
   if (!toolName) return 30;
   const override = overrides[toolName];
   if (override !== undefined) return override;
-  const builtin = DEFAULT_TOOL_RISK[toolName];
-  if (builtin !== undefined) return builtin;
-  return 30;
-}
-
-function isOffHours(hour: number): boolean {
-  return hour < 8 || hour >= 23;
+  return DEFAULT_TOOL_RISK[toolName] ?? 30;
 }
 
 function isExternalTarget(ctx: EvaluationContext): boolean {
   if (ctx.messageTo) return true;
-  if (ctx.toolParams) {
-    const host = ctx.toolParams["host"];
-    if (typeof host === "string" && host !== "sandbox") return true;
-    const elevated = ctx.toolParams["elevated"];
-    if (elevated === true) return true;
-  }
-  return false;
+  if (!ctx.toolParams) return false;
+  const host = ctx.toolParams["host"];
+  if (typeof host === "string" && host !== "sandbox") return true;
+  return ctx.toolParams["elevated"] === true;
+}
+
+function scoreToRiskLevel(score: number): RiskLevel {
+  if (score <= 25) return "low";
+  if (score <= 50) return "medium";
+  if (score <= 75) return "high";
+  return "critical";
 }
 
 export class RiskAssessor {
@@ -54,72 +52,49 @@ export class RiskAssessor {
     ctx: EvaluationContext,
     frequencyTracker: FrequencyTracker,
   ): RiskAssessment {
-    const factors: RiskFactor[] = [];
+    const factors = this.computeFactors(ctx, frequencyTracker);
+    const total = clamp(
+      factors.reduce((sum, f) => sum + f.value, 0), 0, 100,
+    );
+    return { level: scoreToRiskLevel(total), score: Math.round(total), factors };
+  }
 
-    // Factor 1: Tool sensitivity (30%)
+  private computeFactors(
+    ctx: EvaluationContext,
+    frequencyTracker: FrequencyTracker,
+  ): RiskFactor[] {
     const toolRaw = lookupToolRisk(ctx.toolName, this.overrides);
-    const toolValue = (toolRaw / 100) * 30;
-    factors.push({
-      name: "tool_sensitivity",
-      weight: 30,
-      value: toolValue,
-      description: `Tool ${ctx.toolName ?? "unknown"} risk=${toolRaw}`,
-    });
-
-    // Factor 2: Time of day (15%)
-    const timeValue = isOffHours(ctx.time.hour) ? 15 : 0;
-    factors.push({
-      name: "time_of_day",
-      weight: 15,
-      value: timeValue,
-      description: timeValue > 0 ? "Off-hours operation" : "Business hours",
-    });
-
-    // Factor 3: Trust deficit (20%)
-    const trustValue = ((100 - ctx.trust.score) / 100) * 20;
-    factors.push({
-      name: "trust_deficit",
-      weight: 20,
-      value: trustValue,
-      description: `Trust score ${ctx.trust.score}/100`,
-    });
-
-    // Factor 4: Frequency (15%)
+    const isOff = ctx.time.hour < 8 || ctx.time.hour >= 23;
     const recentCount = frequencyTracker.count(
       60, "agent", ctx.agentId, ctx.sessionKey,
     );
-    const freqValue = Math.min(recentCount / 20, 1) * 15;
-    factors.push({
-      name: "frequency",
-      weight: 15,
-      value: freqValue,
-      description: `${recentCount} actions in last 60s`,
-    });
 
-    // Factor 5: Target scope (20%)
-    const targetValue = isExternalTarget(ctx) ? 20 : 0;
-    factors.push({
-      name: "target_scope",
-      weight: 20,
-      value: targetValue,
-      description: targetValue > 0 ? "External target" : "Internal target",
-    });
-
-    const total = clamp(
-      factors.reduce((sum, f) => sum + f.value, 0),
-      0,
-      100,
-    );
-
-    const level = scoreToRiskLevel(total);
-
-    return { level, score: Math.round(total), factors };
+    return [
+      {
+        name: "tool_sensitivity", weight: 30,
+        value: (toolRaw / 100) * 30,
+        description: `Tool ${ctx.toolName ?? "unknown"} risk=${toolRaw}`,
+      },
+      {
+        name: "time_of_day", weight: 15,
+        value: isOff ? 15 : 0,
+        description: isOff ? "Off-hours operation" : "Business hours",
+      },
+      {
+        name: "trust_deficit", weight: 20,
+        value: ((100 - ctx.trust.score) / 100) * 20,
+        description: `Trust score ${ctx.trust.score}/100`,
+      },
+      {
+        name: "frequency", weight: 15,
+        value: Math.min(recentCount / 20, 1) * 15,
+        description: `${recentCount} actions in last 60s`,
+      },
+      {
+        name: "target_scope", weight: 20,
+        value: isExternalTarget(ctx) ? 20 : 0,
+        description: isExternalTarget(ctx) ? "External target" : "Internal target",
+      },
+    ];
   }
-}
-
-function scoreToRiskLevel(score: number): RiskLevel {
-  if (score <= 25) return "low";
-  if (score <= 50) return "medium";
-  if (score <= 75) return "high";
-  return "critical";
 }

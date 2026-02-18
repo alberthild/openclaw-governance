@@ -15,7 +15,6 @@ function matchesAny(
   return list.some((pattern) => {
     const re = regexCache.get(pattern);
     if (re) return texts.some((t) => re.test(t));
-    // Try as regex, fall back to substring search
     try {
       const compiled = new RegExp(pattern);
       return texts.some((t) => compiled.test(t));
@@ -25,47 +24,53 @@ function matchesAny(
   });
 }
 
+function checkConversation(
+  c: ContextCondition, ctx: EvaluationContext, deps: ConditionDeps,
+): boolean {
+  if (c.conversationContains === undefined) return true;
+  const convo = ctx.conversationContext ?? [];
+  if (convo.length === 0) return false;
+  return matchesAny(c.conversationContains, convo, deps.regexCache);
+}
+
+function checkMessage(
+  c: ContextCondition, ctx: EvaluationContext, deps: ConditionDeps,
+): boolean {
+  if (c.messageContains === undefined) return true;
+  if (!ctx.messageContent) return false;
+  return matchesAny(c.messageContains, [ctx.messageContent], deps.regexCache);
+}
+
+function checkMetadata(c: ContextCondition, ctx: EvaluationContext): boolean {
+  if (c.hasMetadata === undefined) return true;
+  const meta = ctx.metadata ?? {};
+  const keys = Array.isArray(c.hasMetadata) ? c.hasMetadata : [c.hasMetadata];
+  return keys.every((k) => k in meta);
+}
+
+function checkChannel(c: ContextCondition, ctx: EvaluationContext): boolean {
+  if (c.channel === undefined) return true;
+  const channels = Array.isArray(c.channel) ? c.channel : [c.channel];
+  return !!ctx.channel && channels.includes(ctx.channel);
+}
+
+function checkSessionKey(c: ContextCondition, ctx: EvaluationContext): boolean {
+  if (c.sessionKey === undefined) return true;
+  if (!ctx.sessionKey) return false;
+  return globToRegex(c.sessionKey).test(ctx.sessionKey);
+}
+
 export function evaluateContextCondition(
   condition: Condition,
   ctx: EvaluationContext,
-  _deps: ConditionDeps,
+  deps: ConditionDeps,
 ): boolean {
   const c = condition as ContextCondition;
-
-  if (c.conversationContains !== undefined) {
-    const convo = ctx.conversationContext ?? [];
-    if (convo.length === 0) return false;
-    if (!matchesAny(c.conversationContains, convo, _deps.regexCache)) {
-      return false;
-    }
-  }
-
-  if (c.messageContains !== undefined) {
-    const content = ctx.messageContent ?? "";
-    if (!content) return false;
-    if (!matchesAny(c.messageContains, [content], _deps.regexCache)) {
-      return false;
-    }
-  }
-
-  if (c.hasMetadata !== undefined) {
-    const meta = ctx.metadata ?? {};
-    const keys = Array.isArray(c.hasMetadata)
-      ? c.hasMetadata
-      : [c.hasMetadata];
-    if (!keys.every((k) => k in meta)) return false;
-  }
-
-  if (c.channel !== undefined) {
-    const channels = Array.isArray(c.channel) ? c.channel : [c.channel];
-    if (!ctx.channel || !channels.includes(ctx.channel)) return false;
-  }
-
-  if (c.sessionKey !== undefined) {
-    if (!ctx.sessionKey) return false;
-    const re = globToRegex(c.sessionKey);
-    if (!re.test(ctx.sessionKey)) return false;
-  }
-
-  return true;
+  return (
+    checkConversation(c, ctx, deps) &&
+    checkMessage(c, ctx, deps) &&
+    checkMetadata(c, ctx) &&
+    checkChannel(c, ctx) &&
+    checkSessionKey(c, ctx)
+  );
 }
