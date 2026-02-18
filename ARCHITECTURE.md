@@ -1,9 +1,9 @@
 # ARCHITECTURE.md — @vainplex/openclaw-governance
 
-**Companion to:** RFC.md (normative specification)  
-**Purpose:** Implementation blueprint for Forge (developer agent) and Cerberus (review agent)  
-**Version:** 0.2.0  
-**Date:** 2026-02-18  
+**Companion to:** RFC.md (normative specification)
+**Purpose:** Implementation blueprint for Forge (developer agent) and Cerberus (review agent)
+**Version:** 0.1.0
+**Date:** 2026-02-18
 
 ---
 
@@ -18,6 +18,7 @@
 7. [Testing Strategy](#7-testing-strategy)
 8. [Implementation Order](#8-implementation-order)
 9. [Build & Package](#9-build--package)
+10. [Appendix: v0.2 Roadmap](#10-appendix-v02-roadmap)
 
 ---
 
@@ -38,23 +39,17 @@ openclaw-governance/
 │   ├── engine.ts                     # GovernanceEngine — orchestrator
 │   ├── policy-loader.ts              # Policy parsing, validation, indexing
 │   ├── policy-evaluator.ts           # Rule matching and condition evaluation
-│   ├── cross-agent.ts               # Cross-Agent Governance (NEW — USP3)
+│   ├── cross-agent.ts               # Cross-Agent Governance (USP3)
 │   ├── conditions/
 │   │   ├── index.ts                  # Condition evaluator registry
 │   │   ├── tool.ts                   # ToolCondition evaluator
 │   │   ├── time.ts                   # TimeCondition evaluator
-│   │   ├── agent.ts                  # AgentCondition evaluator
 │   │   ├── context.ts               # ContextCondition evaluator
-│   │   ├── risk.ts                   # RiskCondition evaluator
-│   │   ├── frequency.ts             # FrequencyCondition evaluator
-│   │   ├── composite.ts             # CompositeCondition (any/not) evaluator
-│   │   └── intent.ts                # IntentCondition evaluator (LLM)
+│   │   └── simple.ts                # Risk, Frequency, Agent, Composite evaluators
 │   ├── risk-assessor.ts             # Risk scoring engine
 │   ├── trust-manager.ts             # Trust score computation and persistence
-│   ├── audit-trail.ts               # Audit record generation, hash chain, storage
+│   ├── audit-trail.ts               # Append-only JSONL audit logging with rotation
 │   ├── audit-redactor.ts            # Sensitive data redaction
-│   ├── approval-manager.ts          # Human-in-the-loop approval workflow
-│   ├── llm-client.ts                # LLM escalation client (OpenAI-compatible)
 │   ├── frequency-tracker.ts         # Ring buffer frequency counter
 │   ├── builtin-policies.ts          # Built-in policy templates
 │   ├── hooks.ts                     # OpenClaw hook registration and handlers
@@ -64,22 +59,16 @@ openclaw-governance/
 │   ├── engine.test.ts
 │   ├── policy-loader.test.ts
 │   ├── policy-evaluator.test.ts
-│   ├── cross-agent.test.ts          # Cross-Agent Governance tests (NEW)
+│   ├── cross-agent.test.ts
 │   ├── conditions/
 │   │   ├── tool.test.ts
 │   │   ├── time.test.ts
-│   │   ├── agent.test.ts
 │   │   ├── context.test.ts
-│   │   ├── risk.test.ts
-│   │   ├── frequency.test.ts
-│   │   ├── composite.test.ts
-│   │   └── intent.test.ts
+│   │   └── simple.test.ts
 │   ├── risk-assessor.test.ts
 │   ├── trust-manager.test.ts
 │   ├── audit-trail.test.ts
 │   ├── audit-redactor.test.ts
-│   ├── approval-manager.test.ts
-│   ├── llm-client.test.ts
 │   ├── frequency-tracker.test.ts
 │   ├── builtin-policies.test.ts
 │   ├── hooks.test.ts
@@ -88,13 +77,14 @@ openclaw-governance/
 └── dist/                             # Compiled output (git-ignored)
 ```
 
+**Source files:** 15 (down from 22)
 **File size constraint:** Max 400 lines per file. Max 40 lines per function (data tables exempt).
 
 ---
 
 ## 2. USP Traceability Matrix
 
-This plugin differentiates itself from ALL competitors (Rampart, NeMo Guardrails, GuardrailsAI, LlamaFirewall) through 5 USPs. Every USP MUST be architecturally anchored in at least 2 modules, tested explicitly, and configurable.
+This plugin differentiates itself from ALL competitors (Rampart, NeMo Guardrails, GuardrailsAI, LlamaFirewall) through 5 USPs. Every v0.1 USP MUST be architecturally anchored in at least 2 modules, tested explicitly, and configurable.
 
 ### USP1: Contextual Policies
 *Not "can agent X use tool Y?" but "should agent X run docker rm at 3 AM on prod, given trust history and maintenance schedule?"*
@@ -103,7 +93,7 @@ This plugin differentiates itself from ALL competitors (Rampart, NeMo Guardrails
 |---|---|
 | `src/conditions/time.ts` | Time-of-day, maintenance window, day-of-week awareness |
 | `src/conditions/context.ts` | Conversation history, metadata, channel, session key awareness |
-| `src/conditions/agent.ts` | Agent identity + trust tier as condition input |
+| `src/conditions/simple.ts` | Agent identity + trust tier as condition input (AgentCondition) |
 | `src/risk-assessor.ts` | Multi-factor risk (tool + time + trust + frequency + target) |
 | `src/policy-evaluator.ts` | Composable conditions evaluated in context |
 | **Tests** | `conditions/time.test.ts`, `conditions/context.test.ts`, `risk-assessor.test.ts`, `integration.test.ts` ("night mode + trust + tool = deny") |
@@ -115,46 +105,42 @@ This plugin differentiates itself from ALL competitors (Rampart, NeMo Guardrails
 | Anchor | Role |
 |---|---|
 | `src/trust-manager.ts` | Score computation, decay, persistence, tier mapping |
-| `src/conditions/agent.ts` | Trust tier/score as condition predicates |
-| `src/cross-agent.ts` | Trust propagation to sub-agents, inherited trust ceilings |
+| `src/conditions/simple.ts` | Trust tier/score as condition predicates (AgentCondition) |
+| `src/cross-agent.ts` | Trust propagation to sub-agents, inherited trust ceiling |
 | `src/hooks.ts` | `after_tool_call` feeds success/failure back into trust |
-| **Tests** | `trust-manager.test.ts`, `conditions/agent.test.ts`, `cross-agent.test.ts` ("sub-agent trust propagation") |
+| **Tests** | `trust-manager.test.ts`, `conditions/simple.test.ts`, `cross-agent.test.ts` |
 | **Config** | `trust.enabled`, `trust.defaults`, `trust.decay`, `trust.weights` |
 
 ### USP3: Cross-Agent Governance
-*Policies that span agent boundaries: sub-agent inheritance, trust propagation, agent-to-agent message governance.*
+*Policies that span agent boundaries: sub-agent inheritance, trust propagation.*
 
 | Anchor | Role |
 |---|---|
-| `src/cross-agent.ts` | **Dedicated module**: policy inheritance resolution, sub-agent trust propagation, agent-to-agent message governance, agent graph tracking |
-| `src/policy-evaluator.ts` | Calls cross-agent module to resolve inherited policies before evaluation |
-| `src/trust-manager.ts` | Provides trust data; cross-agent reads parent trust for ceiling computation |
-| `src/hooks.ts` | Intercepts `sessions_spawn` to register parent→child relationships, intercepts `message_sending` for agent-to-agent governance |
-| **Tests** | `cross-agent.test.ts` (dedicated: 12+ test cases), `integration.test.ts` ("sub-agent inherits parent deny") |
+| `src/cross-agent.ts` | Policy inheritance resolution, sub-agent trust propagation, 1-level parent-cap |
+| `src/policy-evaluator.ts` | Evaluates cross-agent-resolved policy set |
+| `src/trust-manager.ts` | Provides trust data; cross-agent reads parent trust for ceiling |
+| `src/hooks.ts` | Intercepts `sessions_spawn` to register parent→child relationships |
+| **Tests** | `cross-agent.test.ts` (dedicated), `integration.test.ts` ("sub-agent inherits parent deny") |
 | **Config** | `policies[].scope.agents`, `policies[].scope.excludeAgents`, `trust.defaults` |
 
 ### USP4: Compliance-ready Audit Trail
-*Hash-chained JSONL, ISO 27001 Annex A control mapping, tamper-evident, exportable.*
+*Append-only JSONL, ISO 27001 Annex A control mapping, exportable.*
 
 | Anchor | Role |
 |---|---|
-| `src/audit-trail.ts` | Hash chain generation, JSONL persistence, chain verification, ISO control mapping |
+| `src/audit-trail.ts` | JSONL persistence, rotation, ISO control mapping |
 | `src/audit-redactor.ts` | Sensitive data redaction before persistence |
-| `src/cross-agent.ts` | Injects `parentAgentId` and `inheritedPolicies` into audit context for cross-agent traceability |
-| **Tests** | `audit-trail.test.ts`, `audit-redactor.test.ts`, `integration.test.ts` ("chain integrity after 100 records") |
-| **Config** | `audit.enabled`, `audit.backend`, `audit.retentionDays`, `audit.verifyOnStartup`, `audit.redactPatterns`, `audit.level` |
+| `src/cross-agent.ts` | Injects `parentAgentId` and `inheritedPolicies` into audit context |
+| **Tests** | `audit-trail.test.ts`, `audit-redactor.test.ts`, `integration.test.ts` |
+| **Config** | `audit.enabled`, `audit.retentionDays`, `audit.redactPatterns`, `audit.level` |
 
-### USP5: Semantic Intent Understanding
-*Hybrid: regex (<5ms) for 90% of cases, LLM escalation only for ambiguous situations.*
+### USP5: Semantic Intent Understanding — *v0.2*
+*Hybrid: regex (<5ms) for 90% of cases, LLM escalation for ambiguous situations. Default-off in v0.1; deferred to v0.2.*
 
-| Anchor | Role |
+| Status | **Deferred to v0.2** — regex-based conditions cover 95% of real-world use cases |
 |---|---|
-| `src/conditions/intent.ts` | LLM-based intent evaluation with confidence thresholds |
-| `src/llm-client.ts` | OpenAI-compatible client with caching, concurrency control, timeouts |
-| `src/policy-evaluator.ts` | Decides when to escalate to LLM based on risk threshold |
-| `src/risk-assessor.ts` | Risk score determines whether LLM escalation is warranted |
-| **Tests** | `conditions/intent.test.ts`, `llm-client.test.ts`, `integration.test.ts` ("high-risk ambiguous → LLM escalation") |
-| **Config** | `llm.enabled`, `llm.escalationThreshold`, `llm.minRiskForEscalation`, `llm.cacheResults`, `llm.cacheTtlSeconds` |
+| **v0.1 coverage** | `conditions/tool.ts` param matchers with regex provide sufficient pattern matching |
+| **v0.2 plan** | `conditions/intent.ts` + `llm-client.ts` — LLM-based semantic evaluation |
 
 ---
 
@@ -290,8 +276,6 @@ export type TrustTier = "untrusted" | "restricted" | "standard" | "trusted" | "p
 export type TrustSignals = {
   successCount: number;
   violationCount: number;
-  approvedEscalations: number;
-  deniedEscalations: number;
   ageDays: number;
   cleanStreak: number;
   manualAdjustment: number;
@@ -299,7 +283,7 @@ export type TrustSignals = {
 
 export type TrustEvent = {
   timestamp: string;
-  type: "success" | "violation" | "escalation_approved" | "escalation_denied" | "manual_adjustment";
+  type: "success" | "violation" | "manual_adjustment";
   delta: number;
   reason?: string;
 };
@@ -343,10 +327,7 @@ export type AuditLevel = "minimal" | "standard" | "verbose";
 export type RuleEffect =
   | { action: "allow" }
   | { action: "deny"; reason: string }
-  | { action: "escalate"; to: EscalationTarget; timeout?: number; fallback?: "allow" | "deny" }
   | { action: "audit"; level?: AuditLevel };
-
-export type EscalationTarget = "human";
 
 export type ParamMatcher =
   | { equals: string | number | boolean }
@@ -401,12 +382,6 @@ export type FrequencyCondition = {
   scope?: "agent" | "session" | "global";
 };
 
-export type IntentCondition = {
-  type: "intent";
-  description: string;
-  confidence?: number;
-};
-
 export type CompositeCondition = {
   type: "any";
   conditions: Condition[];
@@ -424,7 +399,6 @@ export type Condition =
   | ContextCondition
   | RiskCondition
   | FrequencyCondition
-  | IntentCondition
   | CompositeCondition
   | NegationCondition;
 
@@ -518,25 +492,17 @@ export type MatchedPolicy = {
 };
 
 export type Verdict = {
-  action: "allow" | "deny" | "escalate";
+  action: "allow" | "deny";
   reason: string;
   risk: RiskAssessment;
   matchedPolicies: MatchedPolicy[];
   trust: { score: number; tier: TrustTier };
   evaluationUs: number;
-  llmEscalated: boolean;
 };
 
 // ── Audit ──
 
-export type AuditVerdict =
-  | "allow"
-  | "deny"
-  | "escalate"
-  | "escalate_approved"
-  | "escalate_denied"
-  | "escalate_timeout"
-  | "error_fallback";
+export type AuditVerdict = "allow" | "deny" | "error_fallback";
 
 export type AuditContext = {
   hook: string;
@@ -553,9 +519,6 @@ export type AuditContext = {
 
 export type AuditRecord = {
   id: string;
-  seq: number;
-  prevHash: string;
-  hash: string;
   timestamp: number;
   timestampIso: string;
   verdict: AuditVerdict;
@@ -564,33 +527,7 @@ export type AuditRecord = {
   risk: { level: RiskLevel; score: number };
   matchedPolicies: MatchedPolicy[];
   evaluationUs: number;
-  llmEscalated: boolean;
   controls: string[];
-};
-
-export type AuditChainState = {
-  seq: number;
-  lastHash: string;
-  lastTimestamp: number;
-  recordCount: number;
-};
-
-// ── Approval ──
-
-export type ApprovalStatus = "pending" | "approved" | "denied" | "timeout" | "expired";
-
-export type PendingApproval = {
-  id: string;
-  agentId: string;
-  sessionKey: string;
-  verdict: Verdict;
-  context: EvaluationContext;
-  status: ApprovalStatus;
-  createdAt: number;
-  timeoutAt: number;
-  resolvedAt?: number;
-  resolvedBy?: string;
-  fallback: "allow" | "deny";
 };
 
 // ── Frequency ──
@@ -627,41 +564,15 @@ export type TrustWeights = {
   successPerAction: number;
   successMax: number;
   violationPenalty: number;
-  approvedEscalationBonus: number;
-  deniedEscalationPenalty: number;
   cleanStreakPerDay: number;
   cleanStreakMax: number;
 };
 
 export type AuditConfig = {
   enabled: boolean;
-  backend: "local" | "nats" | "both";
   retentionDays: number;
-  verifyOnStartup: boolean;
   redactPatterns: string[];
   level: AuditLevel;
-};
-
-export type ApprovalConfig = {
-  enabled: boolean;
-  timeoutSeconds: number;
-  defaultFallback: "allow" | "deny";
-  maxPendingPerAgent: number;
-  channel: "system_event" | "direct_message";
-  target?: string;
-};
-
-export type LlmConfig = {
-  enabled: boolean;
-  endpoint: string;
-  model: string;
-  apiKey: string;
-  timeoutMs: number;
-  escalationThreshold: number;
-  minRiskForEscalation: number;
-  maxConcurrent: number;
-  cacheResults: boolean;
-  cacheTtlSeconds: number;
 };
 
 export type PerformanceConfig = {
@@ -687,8 +598,6 @@ export type GovernanceConfig = {
   timeWindows: Record<string, TimeWindow>;
   trust: TrustConfig;
   audit: AuditConfig;
-  approval: ApprovalConfig;
-  llm: LlmConfig;
   toolRiskOverrides: Record<string, number>;
   builtinPolicies: BuiltinPoliciesConfig;
   performance: PerformanceConfig;
@@ -712,11 +621,7 @@ export type PolicyIndex = {
 
 ### 4.1 `index.ts` — Plugin Entry Point
 
-> **USP anchors:** All 5 USPs (orchestration layer that wires everything together)
-
 **Responsibility:** Register the governance plugin with OpenClaw.
-
-**Pattern:** Follows the exact same pattern as `nats-eventstore/index.ts` and `cortex/index.ts`.
 
 ```typescript
 import { resolveConfig } from "./src/config.js";
@@ -756,8 +661,6 @@ export default plugin;
 
 ### 4.2 `src/config.ts` — Configuration Resolution
 
-> **USP anchors:** USP1 (timeWindows, toolRiskOverrides), USP2 (trust config), USP4 (audit config), USP5 (llm config)
-
 **Responsibility:** Resolve raw `pluginConfig` into a fully-typed `GovernanceConfig` with defaults.
 
 **Exports:**
@@ -779,44 +682,25 @@ export function resolveConfig(raw?: Record<string, unknown>): GovernanceConfig;
 | `trust.persistIntervalSeconds` | `60` |
 | `trust.decay.enabled` | `true` |
 | `trust.decay.inactivityDays` | `30` |
-| `trust.decay.rate` | `0.99` |
+| `trust.decay.rate` | `0.95` |
 | `trust.maxHistoryPerAgent` | `100` |
 | `audit.enabled` | `true` |
-| `audit.backend` | `"local"` |
 | `audit.retentionDays` | `90` |
-| `audit.verifyOnStartup` | `true` |
 | `audit.redactPatterns` | `[]` |
 | `audit.level` | `"standard"` |
-| `approval.enabled` | `true` |
-| `approval.timeoutSeconds` | `300` |
-| `approval.defaultFallback` | `"deny"` |
-| `approval.maxPendingPerAgent` | `3` |
-| `approval.channel` | `"system_event"` |
-| `llm.enabled` | `false` |
-| `llm.endpoint` | `"http://localhost:11434/v1"` |
-| `llm.model` | `"mistral:7b"` |
-| `llm.apiKey` | `""` |
-| `llm.timeoutMs` | `5000` |
-| `llm.escalationThreshold` | `50` |
-| `llm.minRiskForEscalation` | `20` |
-| `llm.maxConcurrent` | `2` |
-| `llm.cacheResults` | `true` |
-| `llm.cacheTtlSeconds` | `300` |
 | `performance.maxEvalUs` | `5000` |
 | `performance.maxContextMessages` | `10` |
 | `performance.frequencyBufferSize` | `1000` |
 
 **Pattern:** Same as `cortex/src/config.ts` — destructure with defaults, no validation library.
 
-**Lines:** ~120
+**Lines:** ~80
 
 ---
 
 ### 4.3 `src/engine.ts` — GovernanceEngine
 
-> **USP anchors:** All 5 USPs (orchestrator — wires cross-agent, trust, audit, intent together)
-
-**Responsibility:** Orchestrator that ties all subsystems together. This is the single entry point for hook handlers.
+**Responsibility:** Orchestrator that ties all subsystems together. Single entry point for hook handlers.
 
 **Exports:**
 ```typescript
@@ -829,8 +713,6 @@ export class GovernanceEngine {
   getStatus(): GovernanceStatus;
   getTrust(agentId?: string): AgentTrust | TrustStore;
   setTrust(agentId: string, score: number): void;
-  resolveApproval(id: string, approved: boolean, resolvedBy?: string): void;
-  getPendingApprovals(): PendingApproval[];
   /** Register a parent→child agent relationship (USP3) */
   registerSubAgent(parentSessionKey: string, childSessionKey: string): void;
 }
@@ -845,35 +727,32 @@ class GovernanceEngine {
   private evaluator: PolicyEvaluator;
   private riskAssessor: RiskAssessor;
   private trustManager: TrustManager;
-  private crossAgentManager: CrossAgentManager;  // USP3
+  private crossAgentManager: CrossAgentManager;
   private auditTrail: AuditTrail;
-  private approvalManager: ApprovalManager;
-  private llmClient: LlmClient | null;
   private frequencyTracker: FrequencyTracker;
   private stats: EvaluationStats;
 
   // evaluate() orchestration:
-  // 1. crossAgentManager.enrichContext(ctx)       ← USP3: inject parent info + inherited policies
+  // 1. crossAgentManager.enrichContext(ctx)       ← USP3: inject parent info + trust ceiling
   // 2. riskAssessor.assess(ctx)                   ← USP1: multi-factor contextual risk
   // 3. crossAgentManager.resolveEffectivePolicies(ctx, policyIndex)  ← USP3: merge inherited policies
-  // 4. evaluator.evaluate(ctx, effectivePolicies, risk)              ← USP1+USP5: contextual + semantic eval
-  // 5. trustManager.checkTrustGates(verdict, ctx) ← USP2: trust-based access gates
-  // 6. auditTrail.record(verdict, ctx, risk)      ← USP4: hash-chained compliance record
-  // 7. return verdict
+  // 4. evaluator.evaluate(ctx, effectivePolicies, risk)              ← USP1: contextual eval
+  // 5. auditTrail.record(verdict, ctx, risk)      ← USP4: append-only JSONL record
+  // 6. return verdict
 }
 ```
 
-**Lines:** ~220
+**Lines:** ~180
 
 ---
 
-### 4.4 `src/cross-agent.ts` — Cross-Agent Governance (NEW)
+### 4.4 `src/cross-agent.ts` — Cross-Agent Governance
 
 > **USP anchors:** USP3 (primary), USP2 (trust propagation), USP4 (cross-agent audit context)
 >
-> **Why this is unique:** No competitor (Rampart, NeMo, GuardrailsAI, LlamaFirewall) has any concept of multi-agent governance. They all evaluate a single request in isolation. This module is the architectural core of what makes this plugin a *governance* system rather than a firewall.
+> **Why this is unique:** No competitor has any concept of multi-agent governance. They evaluate a single request in isolation. This module is the architectural core of what makes this plugin a *governance* system rather than a firewall.
 
-**Responsibility:** Manage agent relationships, policy inheritance across agent boundaries, sub-agent trust propagation, and agent-to-agent communication governance.
+**Responsibility:** Manage agent relationships, policy inheritance across agent boundaries, 1-level sub-agent trust propagation.
 
 **Exports:**
 ```typescript
@@ -894,9 +773,6 @@ export class CrossAgentManager {
   /** Get all children of a parent session */
   getChildren(parentSessionKey: string): AgentRelationship[];
 
-  /** Get full ancestor chain (child → parent → grandparent → ...) */
-  getAncestorChain(sessionKey: string): AgentRelationship[];
-
   // ── Context Enrichment ──
 
   /** Enrich an EvaluationContext with cross-agent metadata.
@@ -908,9 +784,8 @@ export class CrossAgentManager {
 
   /** Resolve effective policies for a given context.
    *  For root agents: returns policies from index matching the agent.
-   *  For sub-agents: returns UNION of own policies + all ancestor policies.
-   *  Deny-wins across inheritance chain (parent deny cannot be overridden by child allow).
-   *  Returns a PolicyIndex-compatible structure for the evaluator. */
+   *  For sub-agents: returns UNION of own policies + parent policies.
+   *  Deny-wins across inheritance (parent deny cannot be overridden by child allow). */
   resolveEffectivePolicies(
     ctx: EvaluationContext,
     index: PolicyIndex,
@@ -923,17 +798,6 @@ export class CrossAgentManager {
    *  A sub-agent of a "standard" (score 50) parent cannot exceed score 50.
    *  For root agents, returns Infinity (no ceiling). */
   computeTrustCeiling(sessionKey: string): number;
-
-  // ── Agent-to-Agent Message Governance ──
-
-  /** Check if an agent-to-agent message is allowed.
-   *  Evaluates BOTH sender's outbound policies AND receiver's inbound policies.
-   *  Returns { allowed: boolean, reason?: string }.
-   *  Called by hooks.ts when message_sending targets another agent. */
-  evaluateAgentMessage(
-    senderCtx: EvaluationContext,
-    receiverAgentId: string,
-  ): { allowed: boolean; reason?: string };
 
   /** Get a summary of the current agent graph (for status/debugging) */
   getGraphSummary(): { agentCount: number; relationships: AgentRelationship[] };
@@ -951,39 +815,36 @@ class CrossAgentManager {
   // enrichContext():
   //   1. Check if ctx.sessionKey indicates a sub-agent (contains "subagent:")
   //   2. If yes, lookup parent in graph
-  //   3. Compute trust ceiling from parent chain
+  //   3. Compute trust ceiling from parent (1-level only)
   //   4. Set ctx.crossAgent = { parentAgentId, parentSessionKey, inheritedPolicyIds, trustCeiling }
   //   5. Apply trust ceiling: ctx.trust.score = min(ctx.trust.score, trustCeiling)
   //   6. Recompute ctx.trust.tier from capped score
 
   // resolveEffectivePolicies():
   //   1. Collect policies matching ctx.agentId from index
-  //   2. If sub-agent: walk ancestor chain
-  //   3. For each ancestor: collect policies matching ancestor's agentId
+  //   2. If sub-agent: get parent relationship (1-level)
+  //   3. Collect parent's policies
   //   4. Union all policies (deduplicate by ID)
   //   5. Global policies (scope.agents = undefined) are already included once
   //   6. Return merged list — evaluator applies deny-wins as usual
 
   // computeTrustCeiling():
-  //   1. Walk ancestor chain from sessionKey upward
-  //   2. For each ancestor, get their current trust score
-  //   3. Return minimum trust score in the chain
+  //   1. Lookup parent for sessionKey (1-level)
+  //   2. If parent exists, get parent's current trust score
+  //   3. Return parent trust score as ceiling
   //   4. Root agent → return Infinity (no ceiling)
 }
 ```
 
 **Agent identification pattern:**
-- Session key format: `agent:main:subagent:abc123` → parent is `main`, child is extracted from full key
-- Nested: `agent:main:subagent:forge:subagent:task1` → grandparent `main`, parent `forge`
+- Session key format: `agent:main:subagent:abc123` → parent is `main`
 - `util.extractAgentId()` and `util.isSubAgent()` provide the parsing
 
-**Lines:** ~250
+**Lines:** ~180
 
 ---
 
 ### 4.5 `src/policy-loader.ts` — Policy Loading and Indexing
-
-> **USP anchors:** USP1 (composable condition compilation), USP3 (scope-aware indexing for cross-agent resolution)
 
 **Responsibility:** Parse policy definitions from config, validate them, compile regex patterns, and build the policy index.
 
@@ -1007,7 +868,7 @@ export function validateRegex(pattern: string): { valid: boolean; error?: string
 
 **Policy index structure:**
 - `byHook`: Group policies by `scope.hooks`. No hook scope → ALL hook groups.
-- `byAgent`: Group policies by `scope.agents`. No agent scope → `"*"` (global). *Cross-agent module reads this index to resolve inherited policies.*
+- `byAgent`: Group policies by `scope.agents`. No agent scope → `"*"` (global).
 - `regexCache`: Compile all `matches` patterns into `RegExp` objects.
 
 **Lines:** ~180
@@ -1015,8 +876,6 @@ export function validateRegex(pattern: string): { valid: boolean; error?: string
 ---
 
 ### 4.6 `src/policy-evaluator.ts` — Rule Matching
-
-> **USP anchors:** USP1 (contextual condition evaluation), USP3 (evaluates cross-agent-resolved policy set), USP5 (triggers LLM escalation for ambiguous cases)
 
 **Responsibility:** Evaluate an `EvaluationContext` against policies and return matched policies with their effects.
 
@@ -1026,14 +885,13 @@ export class PolicyEvaluator {
   constructor(conditionEvaluators: ConditionEvaluatorMap);
 
   /** Evaluate context against a list of policies.
-   *  Note: policies may come from PolicyIndex directly (root agents)
+   *  Policies may come from PolicyIndex directly (root agents)
    *  OR from CrossAgentManager.resolveEffectivePolicies (sub-agents). */
   evaluate(
     ctx: EvaluationContext,
     policies: Policy[],
     risk: RiskAssessment,
-    llmClient: LlmClient | null,
-  ): Promise<{ action: "allow" | "deny" | "escalate"; reason: string; matches: MatchedPolicy[] }>;
+  ): { action: "allow" | "deny"; reason: string; matches: MatchedPolicy[] };
 }
 ```
 
@@ -1048,11 +906,11 @@ export class PolicyEvaluator {
    c. First matching rule → policy verdict; break
 4. Collect all policy verdicts
 5. Apply deny-wins aggregation:
-   deny > escalate > audit > allow
+   deny > audit > allow
 6. Return { action, reason, matches }
 ```
 
-**Key change from v0.1.0:** The evaluator now receives a pre-resolved policy list (not the raw PolicyIndex). The cross-agent module handles policy inheritance resolution BEFORE the evaluator runs. This keeps the evaluator clean — it only does matching, not scope resolution.
+**Key design:** The evaluator receives a pre-resolved policy list (not the raw PolicyIndex). The cross-agent module handles policy inheritance resolution BEFORE the evaluator runs. This keeps the evaluator clean — it only does matching, not scope resolution.
 
 **Lines:** ~150
 
@@ -1060,23 +918,20 @@ export class PolicyEvaluator {
 
 ### 4.7 `src/conditions/` — Condition Evaluators
 
-> **USP anchors:** USP1 (each condition type enables contextual awareness), USP5 (intent.ts provides semantic understanding)
-
-Each condition type has its own evaluator module. All follow this interface:
+Each condition type has its own evaluator. All follow this interface:
 
 ```typescript
 export type ConditionEvaluatorFn = (
   condition: Condition,
   ctx: EvaluationContext,
   deps: ConditionDeps,
-) => boolean | Promise<boolean>;
+) => boolean;
 
 export type ConditionDeps = {
   regexCache: Map<string, RegExp>;
   timeWindows: Record<string, TimeWindow>;
   risk: RiskAssessment;
   frequencyTracker: FrequencyTracker;
-  llmClient: LlmClient | null;
 };
 
 export type ConditionEvaluatorMap = Record<Condition["type"], ConditionEvaluatorFn>;
@@ -1086,10 +941,10 @@ export type ConditionEvaluatorMap = Record<Condition["type"], ConditionEvaluator
 
 ```typescript
 export function createConditionEvaluators(): ConditionEvaluatorMap;
-export async function evaluateConditions(
+export function evaluateConditions(
   conditions: Condition[], ctx: EvaluationContext,
   deps: ConditionDeps, evaluators: ConditionEvaluatorMap,
-): Promise<boolean>;
+): boolean;
 ```
 
 #### 4.7.2 `conditions/tool.ts` (~80 lines)
@@ -1098,29 +953,20 @@ Exact match, glob, array, param matchers (equals/contains/matches/startsWith/in)
 #### 4.7.3 `conditions/time.ts` (~70 lines)
 Time ranges, midnight wrap, day-of-week, named window resolution. **USP1 core: makes policies time-aware.**
 
-#### 4.7.4 `conditions/agent.ts` (~40 lines)
-Agent ID match (glob), trust tier check, score range. **USP2 core: trust-based condition predicates.**
-
-#### 4.7.5 `conditions/context.ts` (~70 lines)
+#### 4.7.4 `conditions/context.ts` (~70 lines)
 Conversation search, message content, metadata, channel, session key. **USP1 core: conversation-aware policies.**
 
-#### 4.7.6 `conditions/risk.ts` (~30 lines)
-Risk level ordering and range check.
+#### 4.7.5 `conditions/simple.ts` (~140 lines)
+Four small evaluators consolidated into one file:
 
-#### 4.7.7 `conditions/frequency.ts` (~30 lines)
-Query frequency tracker, returns true if limit exceeded.
-
-#### 4.7.8 `conditions/composite.ts` (~40 lines)
-`any` (OR logic), `not` (negation). Recursive sub-condition evaluation.
-
-#### 4.7.9 `conditions/intent.ts` (~50 lines)
-**USP5 core.** LLM-based intent evaluation. Falls back to false if no LLM available. Builds prompt per RFC §9.4, parses JSON response, checks confidence threshold.
+- **AgentCondition:** Agent ID match (glob), trust tier check, score range. **USP2 core.**
+- **RiskCondition:** Risk level ordering and range check.
+- **FrequencyCondition:** Query frequency tracker, returns true if limit exceeded.
+- **CompositeCondition:** `any` (OR logic), `not` (negation). Recursive sub-condition evaluation.
 
 ---
 
 ### 4.8 `src/risk-assessor.ts` — Risk Scoring
-
-> **USP anchors:** USP1 (multi-factor contextual risk — combines tool + time + trust + frequency + target), USP5 (risk score determines LLM escalation threshold)
 
 **Responsibility:** Compute risk score for an action based on 5 factors.
 
@@ -1162,8 +1008,6 @@ level = total <= 25 ? "low" : total <= 50 ? "medium" : total <= 75 ? "high" : "c
 
 ### 4.9 `src/trust-manager.ts` — Trust System
 
-> **USP anchors:** USP2 (primary — score computation, tier mapping, decay, persistence), USP3 (provides trust data for cross-agent ceiling computation)
-
 **Responsibility:** Manage agent trust scores, compute from signals, persist to disk.
 
 **Exports:**
@@ -1175,7 +1019,6 @@ export class TrustManager {
   getStore(): TrustStore;
   recordSuccess(agentId: string, reason?: string): void;
   recordViolation(agentId: string, reason?: string): void;
-  recordEscalation(agentId: string, approved: boolean, reason?: string): void;
   setScore(agentId: string, score: number): void;
   lockTier(agentId: string, tier: TrustTier): void;
   unlockTier(agentId: string): void;
@@ -1193,10 +1036,8 @@ function computeScore(signals: TrustSignals, weights: TrustWeights): number {
   const base = Math.min(signals.ageDays * weights.agePerDay, weights.ageMax);
   const success = Math.min(signals.successCount * weights.successPerAction, weights.successMax);
   const violations = signals.violationCount * weights.violationPenalty;
-  const escApproved = signals.approvedEscalations * weights.approvedEscalationBonus;
-  const escDenied = signals.deniedEscalations * weights.deniedEscalationPenalty;
   const streak = Math.min(signals.cleanStreak * weights.cleanStreakPerDay, weights.cleanStreakMax);
-  const raw = base + success + violations + escApproved + escDenied + streak + signals.manualAdjustment;
+  const raw = base + success + violations + streak + signals.manualAdjustment;
   return Math.max(0, Math.min(100, raw));
 }
 ```
@@ -1210,10 +1051,10 @@ function computeScore(signals: TrustSignals, weights: TrustWeights): number {
 | `successPerAction` | 0.1 |
 | `successMax` | 30 |
 | `violationPenalty` | -2 |
-| `approvedEscalationBonus` | 0.5 |
-| `deniedEscalationPenalty` | -3 |
 | `cleanStreakPerDay` | 0.3 |
 | `cleanStreakMax` | 20 |
+
+**Trust decay (simplified):** On `load()`, if an agent's `lastEvaluation` is >30 days ago, apply `score *= 0.95` once. No lazy evaluation, no per-read checks.
 
 **Storage:** `{workspace}/governance/trust.json`
 
@@ -1228,22 +1069,20 @@ function scoreToTier(score: number): TrustTier {
 }
 ```
 
-**Lines:** ~250
+**Lines:** ~220
 
 ---
 
 ### 4.10 `src/audit-trail.ts` — Audit System
 
-> **USP anchors:** USP4 (primary — hash chain, ISO 27001 mapping, tamper evidence), USP3 (cross-agent context in audit records)
-
-**Responsibility:** Generate, hash-chain, and persist audit records.
+**Responsibility:** Generate and persist append-only JSONL audit records with file rotation.
 
 **Exports:**
 ```typescript
 export class AuditTrail {
   constructor(config: AuditConfig, workspace: string, logger: PluginLogger);
-  load(verify: boolean): void;
-  /** Create audit record. Accepts crossAgent context from EvaluationContext (USP3+USP4). */
+  load(): void;
+  /** Create and persist an audit record. */
   record(
     verdict: AuditVerdict,
     context: AuditContext,
@@ -1251,39 +1090,28 @@ export class AuditTrail {
     risk: { level: RiskLevel; score: number },
     matchedPolicies: MatchedPolicy[],
     evaluationUs: number,
-    llmEscalated: boolean,
   ): AuditRecord;
   query(filter: AuditFilter): AuditRecord[];
   flush(): void;
   startAutoFlush(): void;
   stopAutoFlush(): void;
-  getChainState(): AuditChainState;
-  verifyChain(from?: string, to?: string): { valid: boolean; breakAt?: number; error?: string };
   getStats(): AuditStats;
 }
 ```
 
-**Hash chain implementation:**
-```typescript
-function computeHash(record: Omit<AuditRecord, "hash">): string {
-  const data = `${record.seq}|${record.timestamp}|${record.verdict}|${record.context.agentId}|${record.context.hook}|${record.context.toolName ?? ""}|${record.prevHash}`;
-  return createHash("sha256").update(data).digest("hex");
-}
-```
+**Record format:** Each record gets a UUID `id`, `timestamp`, ISO timestamp, and ISO 27001 `controls` array. No hash chain, no sequence numbers.
 
 **File format:** JSONL in `{workspace}/governance/audit/YYYY-MM-DD.jsonl`
-**Chain state:** `{workspace}/governance/audit/chain-state.json`
+**Rotation:** New file per day. Files older than `retentionDays` deleted on `load()`.
 **Buffer:** In-memory, flushed every 1s or 100 records.
 
-**Cross-agent audit enrichment (USP3+USP4):** When `context.crossAgent` is present, the audit record preserves `parentAgentId`, `parentSessionKey`, and `inheritedPolicyIds`. This enables compliance queries like "show all actions by sub-agents of forge" and tracing policy inheritance chains.
+**Cross-agent audit enrichment (USP3+USP4):** When `context.crossAgent` is present, the audit record preserves `parentAgentId`, `parentSessionKey`, and `inheritedPolicyIds` for traceability.
 
-**Lines:** ~250
+**Lines:** ~160
 
 ---
 
 ### 4.11 `src/audit-redactor.ts` — Sensitive Data Redaction
-
-> **USP anchors:** USP4 (compliance-ready output requires proper redaction)
 
 **Exports:**
 ```typescript
@@ -1294,61 +1122,7 @@ export function createRedactor(customPatterns: string[]): (ctx: AuditContext) =>
 
 ---
 
-### 4.12 `src/approval-manager.ts` — Human-in-the-Loop
-
-> **USP anchors:** USP1 (contextual escalation — not just "blocked" but "needs human review given context"), USP4 (approval lifecycle fully audited)
-
-**Exports:**
-```typescript
-export class ApprovalManager {
-  constructor(config: ApprovalConfig, workspace: string, logger: PluginLogger);
-  load(): void;
-  create(verdict: Verdict, ctx: EvaluationContext): PendingApproval;
-  resolve(id: string, approved: boolean, resolvedBy?: string): PendingApproval | null;
-  checkTimeouts(): PendingApproval[];
-  getPending(): PendingApproval[];
-  getPendingForAgent(agentId: string): PendingApproval[];
-  canEscalate(agentId: string): boolean;
-  formatNotification(approval: PendingApproval): string;
-  flush(): void;
-  startTimeoutChecker(): void;
-  stopTimeoutChecker(): void;
-}
-```
-
-**Storage:** `{workspace}/governance/pending-approvals.json`
-**Timeout checker:** Every 10s.
-
-**Lines:** ~200
-
----
-
-### 4.13 `src/llm-client.ts` — LLM Escalation Client
-
-> **USP anchors:** USP5 (primary — semantic intent understanding via LLM), USP1 (contextual information passed to LLM for richer evaluation)
-
-**Exports:**
-```typescript
-export class LlmClient {
-  constructor(config: LlmConfig, logger: PluginLogger);
-  evaluateIntent(
-    intent: IntentCondition,
-    ctx: EvaluationContext,
-  ): Promise<{ matches: boolean; confidence: number; reasoning: string } | null>;
-  clearCache(): void;
-  destroy(): void;
-}
-```
-
-**Implementation:** `fetch` (Node 22), semaphore concurrency, `Map` cache with SHA-256 keys, `AbortController` timeouts. On error: return `null`.
-
-**Lines:** ~150
-
----
-
-### 4.14 `src/frequency-tracker.ts` — Ring Buffer Frequency Counter
-
-> **USP anchors:** USP1 (frequency as contextual signal for rate-aware policies)
+### 4.12 `src/frequency-tracker.ts` — Ring Buffer Frequency Counter
 
 **Exports:**
 ```typescript
@@ -1364,9 +1138,7 @@ export class FrequencyTracker {
 
 ---
 
-### 4.15 `src/builtin-policies.ts` — Built-in Policy Templates
-
-> **USP anchors:** USP1 (night mode, credential guard — contextual defaults), USP3 (production safeguard applies cross-agent)
+### 4.13 `src/builtin-policies.ts` — Built-in Policy Templates
 
 **Exports:**
 ```typescript
@@ -1379,9 +1151,7 @@ export function getBuiltinPolicies(config: BuiltinPoliciesConfig): Policy[];
 
 ---
 
-### 4.16 `src/hooks.ts` — Hook Registration
-
-> **USP anchors:** USP2 (after_tool_call → trust feedback loop), USP3 (sessions_spawn → register sub-agent, message_sending → agent-to-agent governance), USP4 (every hook produces audit records)
+### 4.14 `src/hooks.ts` — Hook Registration
 
 **Responsibility:** Register all OpenClaw hook handlers.
 
@@ -1402,9 +1172,8 @@ function registerGovernanceHooks(api, engine, config) {
   api.on("before_tool_call", handleBeforeToolCall(engine, config), { priority: 1000 });
   api.on("message_sending", handleMessageSending(engine, config), { priority: 1000 });
 
-  // Informational hooks
+  // Trust feedback
   api.on("after_tool_call", handleAfterToolCall(engine), { priority: 900 });
-  api.on("message_sent", handleMessageSent(engine), { priority: 900 });
 
   // Context injection
   api.on("before_agent_start", handleBeforeAgentStart(engine, config), { priority: 5 });
@@ -1416,33 +1185,20 @@ function registerGovernanceHooks(api, engine, config) {
 }
 ```
 
-**Cross-Agent hook logic (USP3):**
-
+**Sub-agent registration (USP3):**
 ```typescript
-// In handleBeforeToolCall:
-//   If toolName === "sessions_spawn" || toolName === "subagents":
-//     After tool completes (via after_tool_call), register parent→child relationship
-//     engine.registerSubAgent(parentSessionKey, childSessionKey)
-
 // In handleAfterToolCall:
 //   If toolName was sessions_spawn and result contains sessionId:
 //     engine.registerSubAgent(ctx.sessionKey, result.sessionId)
-
-// In handleMessageSending:
-//   If message target is another agent (detected by target pattern):
-//     engine.crossAgentManager.evaluateAgentMessage(senderCtx, receiverAgentId)
-//     If not allowed → return { cancel: true }
 ```
 
 **Error handling:** Every handler wrapped in try/catch. On error: failMode controls allow vs deny.
 
-**Lines:** ~220
+**Lines:** ~180
 
 ---
 
-### 4.17 `src/util.ts` — Shared Utilities
-
-> **USP anchors:** USP3 (agent ID extraction, sub-agent detection from session keys)
+### 4.15 `src/util.ts` — Shared Utilities
 
 **Exports:**
 ```typescript
@@ -1457,11 +1213,9 @@ export function extractAgentId(sessionKey?: string, agentId?: string): string;
 export function isSubAgent(sessionKey?: string): boolean;
 /** Extract parent session key from a sub-agent session key (USP3) */
 export function extractParentSessionKey(sessionKey: string): string | null;
-/** Extract all agent IDs from a session key chain (USP3) */
-export function extractAgentChain(sessionKey: string): string[];
 ```
 
-**Lines:** ~120
+**Lines:** ~100
 
 ---
 
@@ -1479,14 +1233,6 @@ Agent calls exec("docker rm container-x")
 └─────────────┬───────────────────┘
               │
               ▼
-┌─────────────────────────────────┐
-│ hooks.ts: handleBeforeToolCall  │
-│ 1. Build EvaluationContext      │
-│    - agentId, toolName, params  │
-│    - time, trust                │
-└─────────────┬───────────────────┘
-              │
-              ▼
 ┌─────────────────────────────────────┐
 │ engine.ts: evaluate(ctx)            │
 │                                     │
@@ -1500,16 +1246,14 @@ Agent calls exec("docker rm container-x")
 │    Policies(ctx, policyIndex)       │
 │    → [own policies + parent's]      │
 │                                     │
-│ 4. evaluator.evaluate(ctx, merged)  │  ← USP1+USP5: contextual + semantic
+│ 4. evaluator.evaluate(ctx, merged)  │  ← USP1: contextual eval
 │    → builtin-night-mode matches     │
 │    → { action:"deny" }              │
 │                                     │
-│ 5. trustManager.recordViolation     │  ← USP2: trust feedback
-│                                     │
-│ 6. auditTrail.record(...)           │  ← USP4: hash-chained record
+│ 5. auditTrail.record(...)           │  ← USP4: append-only JSONL record
 │    → includes crossAgent context    │
 │                                     │
-│ 7. return Verdict                   │
+│ 6. return Verdict                   │
 └─────────────┬───────────────────────┘
               │
               ▼
@@ -1571,57 +1315,7 @@ Main agent spawns forge sub-agent
 └────────────────────────────────────────┘
 ```
 
-### 5.3 Agent-to-Agent Message Governance (USP3)
-
-```
-Forge sends message to Cerberus
-         │
-         ▼
-┌────────────────────────────────────────┐
-│ message_sending hook fires             │
-│ → hooks.ts detects target is an agent  │
-│   (target matches agent:* pattern)     │
-│                                        │
-│ 1. Build sender EvaluationContext      │
-│ 2. crossAgent.evaluateAgentMessage(    │
-│      senderCtx, "cerberus")            │
-│    → Checks sender's outbound policies │
-│    → Checks receiver's inbound policies│
-│    → Both must allow                   │
-│ 3. If blocked → { cancel: true }       │
-│ 4. Audit record captures both sides    │
-└────────────────────────────────────────┘
-```
-
-### 5.4 Escalation Flow
-
-```
-Agent calls gateway("restart")
-         │
-         ▼
-┌─────────────────────────────┐
-│ evaluate(ctx)               │
-│ → production-safeguard      │
-│ → effect: "escalate"        │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ approvalManager.create(...)  │
-│ → notification formatted     │
-│ → system event enqueued      │
-└──────────┬──────────────────┘
-           │
-      ┌────┴────┐
-      ▼         ▼
-  Human sees   Timeout (300s)
-      │         │
-      ▼         ▼
-  /approve    fallback applied
-  or /deny
-```
-
-### 5.5 Trust Update Flow
+### 5.3 Trust Update Flow
 
 ```
 after_tool_call event
@@ -1637,7 +1331,7 @@ after_tool_call event
 └────────────────────────────────┘
 ```
 
-### 5.6 Startup Flow
+### 5.4 Startup Flow
 
 ```
 gateway_start event
@@ -1649,13 +1343,11 @@ gateway_start event
 │    + builtinPolicies           │
 │    → build policy index        │
 │ 2. trustManager.load()         │
-│    → apply decay if needed     │
-│ 3. auditTrail.load(verify)     │
-│    → verify hash chain         │
-│ 4. approvalManager.load()      │
-│    → expire stale approvals    │
-│ 5. frequencyTracker.clear()    │
-│ 6. Start timers                │
+│    → apply decay if stale      │
+│ 3. auditTrail.load()           │
+│    → clean up old files        │
+│ 4. frequencyTracker.clear()    │
+│ 5. Start timers                │
 └────────────────────────────────┘
 ```
 
@@ -1709,11 +1401,9 @@ gateway_start event
         "rateLimiter": { "maxPerMinute": 15 }
       },
       "audit": {
-        "backend": "both",
         "retentionDays": 90,
         "level": "standard"
-      },
-      "llm": { "enabled": false }
+      }
     }
   }
 }
@@ -1724,9 +1414,7 @@ gateway_start event
 ```
 {workspace}/governance/
 ├── trust.json
-├── pending-approvals.json
 └── audit/
-    ├── chain-state.json
     ├── 2026-02-18.jsonl
     └── ...
 ```
@@ -1752,18 +1440,12 @@ Every module gets dedicated unit tests. Minimum coverage: 90% lines.
 | `policy-evaluator` | AND logic, deny-wins, priority ordering, scope filtering, empty passthrough |
 | `conditions/tool` | Exact match, glob, array, param matchers, missing tool name |
 | `conditions/time` | Normal range, midnight wrap, day filter, named window, edge: start==end |
-| `conditions/agent` | ID match, trust tier, score range, glob ID |
 | `conditions/context` | Conversation search, message search, metadata, channel, session key glob |
-| `conditions/risk` | Level ordering, boundary values |
-| `conditions/frequency` | Under/at/over limit, different scopes |
-| `conditions/composite` | OR, NOT, nested composites |
-| `conditions/intent` | LLM available/unavailable, timeout, confidence threshold |
+| `conditions/simple` | Agent ID/tier/score, risk ordering, frequency under/at/over, composite OR/NOT/nested |
 | `risk-assessor` | Known/unknown tools, off-hours, trust deficit, overrides |
-| `trust-manager` | Score computation, tier mapping, decay, manual adjust, lock, floor, persistence |
-| `audit-trail` | Record creation, hash chain, verification, buffer flush, redaction, JSONL |
+| `trust-manager` | Score computation, tier mapping, decay on load, manual adjust, lock, floor, persistence |
+| `audit-trail` | Record creation, buffer flush, redaction, JSONL format, rotation, retention cleanup |
 | `audit-redactor` | Sensitive keys, truncation, custom patterns, nested objects |
-| `approval-manager` | Create, resolve, timeout, max pending, persistence |
-| `llm-client` | Success, timeout, cache hit/miss, concurrent limit |
 | `frequency-tracker` | Ring buffer wrap, time window expiry, scope filtering |
 | `hooks` | Deny→block, allow→undefined, error→failMode, priority set |
 | **`cross-agent`** | **See §7.3 below** |
@@ -1776,48 +1458,26 @@ Every module gets dedicated unit tests. Minimum coverage: 90% lines.
 ```typescript
 describe("CrossAgentManager", () => {
   // ── Agent Graph ──
-  it("should register a parent→child relationship", () => { ... });
-  it("should return null parent for root agents", () => { ... });
-  it("should track nested relationships (grandparent→parent→child)", () => { ... });
-  it("should remove relationship on session end", () => { ... });
-  it("should return all children of a parent", () => { ... });
+  it("should register a parent→child relationship");
+  it("should return null parent for root agents");
+  it("should remove relationship on session end");
+  it("should return all children of a parent");
 
   // ── Context Enrichment ──
-  it("should enrich sub-agent context with parent info", () => { ... });
-  it("should NOT modify root agent context", () => { ... });
+  it("should enrich sub-agent context with parent info");
+  it("should NOT modify root agent context");
 
   // ── Policy Inheritance ──
-  it("should return only own+global policies for root agents", () => { ... });
-  it("should inherit parent's policies for sub-agents", () => {
-    // Setup: parent has "no-deploy" policy, child has "allow-read" policy
-    // Assert: child's effective policies include both
-  });
-  it("should apply deny-wins across inheritance (parent deny overrides child allow)", () => {
-    // Setup: parent denies exec "docker rm", child policy allows it
-    // Assert: deny wins — child cannot override parent's deny
-  });
-  it("should inherit policies through multiple levels (grandparent→parent→child)", () => { ... });
+  it("should return only own+global policies for root agents");
+  it("should inherit parent's policies for sub-agents");
+  it("should apply deny-wins across inheritance (parent deny overrides child allow)");
 
   // ── Trust Propagation ──
-  it("should cap sub-agent trust at parent's trust score", () => {
-    // Setup: parent score=50 (standard), child score=80 (configured high)
-    // Assert: effective child score = 50 (capped by parent)
-  });
-  it("should compute trust ceiling through ancestor chain (minimum wins)", () => {
-    // Setup: grandparent=80, parent=50, child=90
-    // Assert: effective child score = 50 (min of chain)
-  });
-  it("should not cap root agent trust", () => { ... });
-
-  // ── Agent-to-Agent Message Governance ──
-  it("should allow agent-to-agent message when both policies allow", () => { ... });
-  it("should block message when sender's outbound policy denies", () => { ... });
-  it("should block message when receiver's inbound policy denies", () => { ... });
+  it("should cap sub-agent trust at parent's trust score");
+  it("should not cap root agent trust");
 
   // ── Audit Integration ──
-  it("should include crossAgent context in enriched EvaluationContext", () => {
-    // Assert: ctx.crossAgent.parentAgentId, inheritedPolicyIds, trustCeiling present
-  });
+  it("should include crossAgent context in enriched EvaluationContext");
 });
 ```
 
@@ -1827,25 +1487,17 @@ describe("CrossAgentManager", () => {
 
 ```typescript
 describe("Governance Integration", () => {
-  it("should deny tool call matching a deny policy", async () => { ... });
-  it("should allow tool call when no policies match", async () => { ... });
-  it("should escalate when policy requests it", async () => { ... });
-  it("should deny-wins across multiple policies", async () => { ... });
-  it("should respect trust tier gates on rules", async () => { ... });
-  it("should apply night mode builtin policy", async () => { ... });
-  it("should handle engine errors with fail-open", async () => { ... });
-  it("should maintain hash chain integrity", async () => { ... });
+  it("should deny tool call matching a deny policy");
+  it("should allow tool call when no policies match");
+  it("should deny-wins across multiple policies");
+  it("should respect trust tier gates on rules");
+  it("should apply night mode builtin policy");
+  it("should handle engine errors with fail-open");
 
   // Cross-Agent Integration (USP3)
-  it("should deny sub-agent action when parent policy denies", async () => {
-    // Full pipeline: spawn sub-agent → sub-agent calls tool → parent's deny inherited → blocked
-  });
-  it("should cap sub-agent trust and evaluate accordingly", async () => {
-    // Full pipeline: sub-agent with high config trust → capped by parent → rule minTrust gate fails
-  });
-  it("should produce audit record with cross-agent context", async () => {
-    // Full pipeline: sub-agent action → audit record includes parentAgentId + inheritedPolicyIds
-  });
+  it("should deny sub-agent action when parent policy denies");
+  it("should cap sub-agent trust and evaluate accordingly");
+  it("should produce audit record with cross-agent context");
 });
 ```
 
@@ -1853,9 +1505,8 @@ describe("Governance Integration", () => {
 
 ```typescript
 describe("Performance", () => {
-  it("should evaluate 10 regex policies in <5ms", () => { ... });
-  it("should handle 1000 frequency entries without degradation", () => { ... });
-  it("should resolve cross-agent policies in <1ms for 3-level nesting", () => { ... });
+  it("should evaluate 10 regex policies in <5ms");
+  it("should handle 1000 frequency entries without degradation");
 });
 ```
 
@@ -1883,47 +1534,39 @@ Forge MUST implement modules in this order. Each phase builds on the previous.
 
 ### Phase 1: Foundation (types, config, utils)
 1. `src/types.ts` — All type definitions (including CrossAgent types)
-2. `src/util.ts` — Shared utilities (including `extractParentSessionKey`, `extractAgentChain`)
+2. `src/util.ts` — Shared utilities (including `extractParentSessionKey`)
 3. `src/config.ts` — Configuration resolution
 4. `test/config.test.ts` + `test/util.test.ts`
 
 ### Phase 2: Core Engine (conditions, evaluation)
 5. `src/conditions/tool.ts` + test
 6. `src/conditions/time.ts` + test
-7. `src/conditions/agent.ts` + test
-8. `src/conditions/context.ts` + test
-9. `src/conditions/risk.ts` + test
-10. `src/conditions/frequency.ts` + test
-11. `src/conditions/composite.ts` + test
-12. `src/conditions/index.ts`
-13. `src/frequency-tracker.ts` + test
-14. `src/risk-assessor.ts` + test
-15. `src/policy-loader.ts` + test
-16. `src/policy-evaluator.ts` + test
+7. `src/conditions/context.ts` + test
+8. `src/conditions/simple.ts` + test (agent, risk, frequency, composite)
+9. `src/conditions/index.ts`
+10. `src/frequency-tracker.ts` + test
+11. `src/risk-assessor.ts` + test
+12. `src/policy-loader.ts` + test
+13. `src/policy-evaluator.ts` + test
 
 ### Phase 3: Trust, Cross-Agent, Audit
-17. `src/trust-manager.ts` + test
-18. **`src/cross-agent.ts` + `test/cross-agent.test.ts`** ← NEW (depends on trust-manager)
-19. `src/audit-redactor.ts` + test
-20. `src/audit-trail.ts` + test
+14. `src/trust-manager.ts` + test
+15. `src/cross-agent.ts` + `test/cross-agent.test.ts` (depends on trust-manager)
+16. `src/audit-redactor.ts` + test
+17. `src/audit-trail.ts` + test
 
-### Phase 4: Approval & LLM
-21. `src/approval-manager.ts` + test
-22. `src/conditions/intent.ts` + test
-23. `src/llm-client.ts` + test
+### Phase 4: Integration
+18. `src/builtin-policies.ts` + test
+19. `src/engine.ts` + test
+20. `src/hooks.ts` + test
+21. `index.ts`
+22. `test/integration.test.ts`
 
-### Phase 5: Integration
-24. `src/builtin-policies.ts` + test
-25. `src/engine.ts` + test
-26. `src/hooks.ts` + test
-27. `index.ts`
-28. `test/integration.test.ts`
-
-### Phase 6: Package
-29. `openclaw.plugin.json`
-30. `package.json`
-31. `tsconfig.json`
-32. `README.md`
+### Phase 5: Package
+23. `openclaw.plugin.json`
+24. `package.json`
+25. `tsconfig.json`
+26. `README.md`
 
 ---
 
@@ -1962,7 +1605,7 @@ Forge MUST implement modules in this order. Each phase builds on the previous.
 }
 ```
 
-**Zero runtime dependencies.** Only Node.js builtins: `node:crypto`, `node:fs`, `node:path`, `node:url`.
+**Zero runtime dependencies.** Only Node.js builtins: `node:crypto`, `node:fs`, `node:path`.
 
 ### 9.2 tsconfig.json
 
@@ -2000,9 +1643,23 @@ Forge MUST implement modules in this order. Each phase builds on the previous.
 | UUIDs | `node:crypto` → `randomUUID()` |
 | File I/O | `node:fs` |
 | Path handling | `node:path` |
-| HTTP (LLM client) | Global `fetch` (Node 22 built-in) |
 | High-res timing | `performance.now()` (global) |
 | Timezone handling | `Intl.DateTimeFormat` with `timeZone` option |
+
+---
+
+## 10. Appendix: v0.2 Roadmap
+
+Features deferred from v0.1 to keep the initial release lean and focused:
+
+| Feature | Description | Modules |
+|---|---|---|
+| **Human-in-the-Loop Approval** | Escalation workflow with pending state, timeout, notification | `approval-manager.ts` |
+| **LLM Intent Understanding** | Semantic condition evaluation via OpenAI-compatible API | `conditions/intent.ts`, `llm-client.ts` |
+| **Hash-Chained Audit** | SHA-256 hash chain on audit records, chain verification on startup | Enhancement to `audit-trail.ts` |
+| **NATS Audit Backend** | Publish audit records to NATS for distributed consumption | `audit.backend: "nats" \| "both"` |
+| **Agent-to-Agent Message Governance** | Bidirectional policy checking for inter-agent messages | `cross-agent.ts` → `evaluateAgentMessage()` |
+| **Multi-Level Trust Ceiling** | Ancestor chain walking for deeply nested sub-agents | `cross-agent.ts` → `getAncestorChain()` |
 
 ---
 
