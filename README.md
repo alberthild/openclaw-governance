@@ -26,12 +26,12 @@ Agent calls exec("git push origin main")
   → Agent gets a clear rejection reason
 ```
 
-**Four things no competitor does:**
+**What this plugin adds to OpenClaw:**
 
-1. **Contextual Policies** — Not just "which tool" but "which tool, when, by whom, in what conversation, at what risk level"
-2. **Learning Trust** — Agents earn autonomy. Score 0-100, five tiers, decay on inactivity. A new sub-agent starts untrusted and works its way up.
-3. **Cross-Agent Governance** — Parent policies cascade to sub-agents. A "no deploy" rule on main also blocks forge. Trust is capped: child can never exceed parent.
-4. **Compliance Audit Trail** — Append-only JSONL with ISO 27001 Annex A control mapping. Every decision recorded, redacted, rotatable.
+- **Contextual Policies** — Not just "which tool" but "which tool, when, by whom, in what conversation, at what risk level"
+- **Learning Trust** — Agents earn autonomy. Score 0-100, five tiers, decay on inactivity. A new sub-agent starts untrusted and works its way up.
+- **Cross-Agent Governance** — Parent policies cascade to sub-agents. A "no deploy" rule on main also blocks forge. Trust is capped: child can never exceed parent.
+- **Compliance Audit Trail** — Append-only JSONL with ISO 27001 Annex A control mapping. Every decision recorded, redacted, rotatable.
 
 ## Quick Start
 
