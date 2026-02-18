@@ -227,6 +227,9 @@ export class TrustManager {
   }
 
   private recalculate(agent: AgentTrust): void {
+    agent.signals.ageDays = Math.floor(
+      (Date.now() - new Date(agent.created).getTime()) / (1000 * 60 * 60 * 24),
+    );
     agent.score = computeScore(agent.signals, this.weights);
     if (agent.floor !== undefined && agent.score < agent.floor) {
       agent.score = agent.floor;
@@ -259,6 +262,7 @@ export class TrustManager {
       () => this.flush(),
       this.config.persistIntervalSeconds * 1000,
     );
+    this.persistTimer.unref();
   }
 
   stopPersistence(): void {

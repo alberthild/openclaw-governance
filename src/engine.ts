@@ -91,8 +91,12 @@ export class GovernanceEngine {
   }
 
   async stop(): Promise<void> {
-    this.trustManager.stopPersistence();
-    this.auditTrail.stopAutoFlush();
+    try { this.trustManager.stopPersistence(); } catch (e) {
+      this.logger.error(`[governance] Error stopping trust persistence: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    try { this.auditTrail.stopAutoFlush(); } catch (e) {
+      this.logger.error(`[governance] Error stopping audit flush: ${e instanceof Error ? e.message : String(e)}`);
+    }
     this.logger.info("[governance] Engine stopped");
   }
 

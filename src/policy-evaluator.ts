@@ -34,7 +34,7 @@ function policySpecificity(policy: Policy): number {
 }
 
 function sortPolicies(policies: Policy[]): Policy[] {
-  return policies.sort((a, b) => {
+  return [...policies].sort((a, b) => {
     const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
     if (priDiff !== 0) return priDiff;
     return policySpecificity(b) - policySpecificity(a);

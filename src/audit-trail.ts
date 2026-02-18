@@ -177,6 +177,7 @@ export class AuditTrail {
   startAutoFlush(): void {
     if (this.flushTimer) return;
     this.flushTimer = setInterval(() => this.flush(), 1000);
+    this.flushTimer.unref();
   }
 
   stopAutoFlush(): void {
