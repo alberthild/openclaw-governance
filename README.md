@@ -274,6 +274,22 @@ Enable with a boolean or customize:
 |---------|-------------|
 | `/governance` | Show engine status, policy count, trust overview |
 
+## Important: Policy Reload Behavior
+
+⚠️ **Policies are loaded once at gateway startup.** If you change policy configuration in `openclaw.json` (add, remove, or edit rules), you must restart the gateway for changes to take effect:
+
+```bash
+openclaw gateway restart
+# or send SIGUSR1 to the gateway process
+```
+
+A config edit alone (including `config.patch`) will write the file but **not reload policies into the running governance engine**. This is by design — deterministic policy evaluation means no mid-session surprises.
+
+If you add custom policies via the config and they don't seem to fire, check:
+1. Was the gateway restarted after the config change?
+2. Does the policy scope match the hook? (e.g., `before_tool_call` for tool blocking)
+3. Is the regex correct? Use `new RegExp("your-pattern").test("your-input")` in Node.js to verify.
+
 ## Performance
 
 - Evaluation: **<5ms** for 10+ regex policies
