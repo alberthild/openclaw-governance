@@ -22,7 +22,7 @@ This plugin answers that question in <5ms.
 Agent calls exec("git push origin main")
   → Governance evaluates: tool + time + trust + frequency + context
   → Verdict: DENY — "Forge cannot push to main (trust: restricted, score: 32)"
-  → Audit record written (JSONL, ISO 27001 mapped)
+  → Audit record written (JSONL, compliance-mapped)
   → Agent gets a clear rejection reason
 ```
 
@@ -31,7 +31,7 @@ Agent calls exec("git push origin main")
 - **Contextual Policies** — Not just "which tool" but "which tool, when, by whom, in what conversation, at what risk level"
 - **Learning Trust** — Agents earn autonomy. Score 0-100, five tiers, decay on inactivity. A new sub-agent starts untrusted and works its way up.
 - **Cross-Agent Governance** — Parent policies cascade to sub-agents. A "no deploy" rule on main also blocks forge. Trust is capped: child can never exceed parent.
-- **Compliance Audit Trail** — Append-only JSONL with ISO 27001 Annex A control mapping. Every decision recorded, redacted, rotatable.
+- **Compliance Audit Trail** — Append-only JSONL with compliance control mapping (ISO 27001, SOC 2, NIS2, GDPR). Every decision recorded, redacted, rotatable.
 
 ## Quick Start
 
@@ -251,7 +251,7 @@ Every governance decision is logged to `{workspace}/governance/audit/YYYY-MM-DD.
 
 - **Rotation:** One file per day, auto-cleaned after `retentionDays`
 - **Redaction:** Sensitive data (passwords, tokens, keys) redacted before write
-- **ISO 27001:** Each record maps to Annex A controls for compliance audits
+- **Compliance:** Each record maps to standard controls (ISO 27001 Annex A, SOC 2, NIS2) for audits
 
 ## Built-in Policies
 
